@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ZION // MISSION TERMINAL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000000;
+    --panel:#040a05;
+    --panel-2:#08130a;
+    --green:#00ff41;
+    --green-bright:#7dffb0;
+    --green-dim:#0d3d1c;
+    --green-faint:#062b12;
+    --text-dim:#4d9966;
+    --red:#ff3b3b;
+    --border:#123d1f;
+    --mono:'Share Tech Mono', 'Courier New', monospace;
+    --display:'VT323', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--bg);
+    color:var(--green);
+    font-family:var(--mono);
+    overflow-x:hidden;
+  }
+  #matrix-canvas{
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    z-index:0; opacity:0.55;
+  }
+  #app{
+    position:relative; z-index:1; min-height:100vh;
+    display:flex; flex-direction:column; align-items:center;
+    padding:24px 16px 60px;
+  }
+  ::selection{ background:var(--green); color:#000; }
+  a{color:var(--green-bright);}
+
+  /* scanline / crt vignette overlay */
+  #app::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:overlay;
+  }
+  #app::after{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:5;
+    box-shadow: inset 0 0 140px rgba(0,0,0,0.85);
+  }
+
+  .flicker{ animation: flicker 4s infinite; }
+  @keyframes flicker{
+    0%,19%,21%,23%,25%,54%,56%,100%{ opacity:1; }
+    20%,24%,55%{ opacity:0.82; }
+  }
+
+  h1,h2,h3{ font-family:var(--display); font-weight:400; letter-spacing:1px; }
+
+  .glow{ text-shadow:0 0 6px var(--green), 0 0 14px rgba(0,255,65,0.4); }
+
+  button, input, textarea, select{
+    font-family:var(--mono);
+    background:var(--panel-2);
+    color:var(--green);
+    border:1px solid var(--border);
+    outline:none;
+  }
+  button{
+    cursor:pointer; padding:10px 18px; letter-spacing:1px;
+    text-transform:uppercase; font-size:13px;
+    transition:all 0.15s ease;
+  }
+  button:hover{ background:var(--green); color:#000; box-shadow:0 0 16px var(--green); }
+  button:active{ transform:translateY(1px); }
+  button.ghost{ background:transparent; }
+  button.danger{ border-color:var(--red); color:var(--red); }
+  button.danger:hover{ background:var(--red); color:#000; box-shadow:0 0 16px var(--red); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  button:disabled:hover{ background:transparent; color:var(--green); box-shadow:none; }
+
+  input, textarea{ padding:10px 12px; font-size:14px; width:100%; }
+  input:focus, textarea:focus{ border-color:var(--green); box-shadow:0 0 8px rgba(0,255,65,0.35); }
+  textarea{ resize:vertical; line-height:1.5; }
+  label{ display:block; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:6px; }
+
+  /* ---------- TERMINAL / PASSCODE SCREEN ---------- */
+  .boot-wrap{
+    width:100%; max-width:640px; margin-top:8vh;
+  }
+  .boot-line{ font-size:14px; color:var(--text-dim); margin:2px 0; white-space:pre-wrap; }
+  .boot-line b{ color:var(--green-bright); }
+
+  .terminal-card{
+    width:100%; max-width:460px; margin-top:6vh;
+    border:1px solid var(--border);
+    background:rgba(4,10,5,0.85);
+    box-shadow:0 0 40px rgba(0,255,65,0.08), inset 0 0 60px rgba(0,255,65,0.03);
+    padding:32px 28px 28px;
+    backdrop-filter: blur(1px);
+  }
+  .terminal-titlebar{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:12px; color:var(--text-dim); letter-spacing:2px;
+    border-bottom:1px dashed var(--border); padding-bottom:12px; margin-bottom:20px;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; box-shadow:0 0 6px var(--green); animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  .prompt-row{ display:flex; align-items:center; gap:8px; font-size:20px; margin-bottom:18px; }
+  .cursor{ display:inline-block; width:9px; height:18px; background:var(--green); animation:blink 1s step-end infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .code-input{
+    font-family:var(--display); font-size:26px; letter-spacing:10px; text-align:center;
+    padding:14px 10px;
+  }
+  .error-msg{ color:var(--red); font-size:13px; margin-top:12px; letter-spacing:1px; }
+  .shake{ animation:shake 0.4s; }
+  @keyframes shake{ 10%,90%{transform:translateX(-2px);} 20%,80%{transform:translateX(4px);} 30%,50%,70%{transform:translateX(-8px);} 40%,60%{transform:translateX(8px);} }
+
+  .submit-row{ display:flex; gap:10px; margin-top:18px; }
+  .submit-row button{ flex:1; }
+
+  .footnote{ margin-top:26px; font-size:11px; color:var(--text-dim); text-align:center; letter-spacing:1px; }
+
+  /* ---------- MISSION SCREEN ---------- */
+  .mission-wrap{ width:100%; max-width:880px; }
+  .top-bar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 0 18px; border-bottom:1px solid var(--border); margin-bottom:22px;
+    font-size:12px; letter-spacing:2px; color:var(--text-dim);
+  }
+  .top-bar .status{ color:var(--green-bright); }
+
+  .slider{
+    position:relative; width:100%; aspect-ratio: 16/7; overflow:hidden;
+    border:1px solid var(--border); background:var(--panel);
+    box-shadow:0 0 30px rgba(0,255,65,0.08);
+  }
+  .slider-track{ display:flex; height:100%; transition:transform 0.5s ease; }
+  .slide{ min-width:100%; height:100%; position:relative; }
+  .slide img{ width:100%; height:100%; object-fit:cover; filter:grayscale(15%) contrast(1.05) brightness(0.85) hue-rotate(80deg) saturate(1.3); }
+  .slide-empty{
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim); font-size:14px; letter-spacing:2px;
+  }
+  .slider::after{
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0px, rgba(0,0,0,0.25) 1px, transparent 1px, transparent 3px);
+  }
+  .slider-nav{
+    position:absolute; top:50%; transform:translateY(-50%); z-index:3;
+    background:rgba(0,0,0,0.5); border:1px solid var(--border);
+    width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+    font-size:16px; padding:0;
+  }
+  .slider-nav.prev{ left:10px; } .slider-nav.next{ right:10px; }
+  .slider-dots{ position:absolute; bottom:10px; left:0; right:0; display:flex; justify-content:center; gap:6px; z-index:3; }
+  .slider-dots span{ width:7px; height:7px; border:1px solid var(--green); border-radius:50%; opacity:0.5; cursor:pointer; }
+  .slider-dots span.active{ opacity:1; background:var(--green); box-shadow:0 0 6px var(--green); }
+
+  .case-file{
+    margin-top:26px; border:1px solid var(--border); background:rgba(4,10,5,0.7);
+    padding:26px 28px; position:relative;
+  }
+  .case-file .stamp{
+    position:absolute; top:18px; right:22px; border:2px solid var(--red); color:var(--red);
+    padding:4px 10px; font-family:var(--display); font-size:20px; letter-spacing:3px;
+    transform:rotate(6deg); opacity:0.75;
+  }
+  .case-file h2{ font-size:30px; margin:0 0 4px; }
+  .case-file .subline{ font-size:12px; color:var(--text-dim); letter-spacing:2px; margin-bottom:18px; }
+  .case-file .divider{ border-top:1px dashed var(--border); margin:18px 0; }
+  .mission-body{ white-space:pre-wrap; line-height:1.75; font-size:15px; color:var(--green-bright); }
+
+  .bottom-bar{ display:flex; justify-content:center; margin-top:30px; }
+  .link-btn{ background:none; border:none; color:var(--text-dim); font-size:11px; letter-spacing:2px; text-decoration:underline; padding:6px; }
+  .link-btn:hover{ color:var(--green); background:none; box-shadow:none; }
+
+  /* ---------- MODAL ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:20;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .modal{
+    width:100%; max-width:380px; background:var(--panel); border:1px solid var(--border);
+    padding:26px; box-shadow:0 0 40px rgba(0,255,65,0.15);
+  }
+  .modal h3{ margin-top:0; font-size:24px; }
+  .modal .row{ margin-bottom:14px; }
+  .modal .actions{ display:flex; gap:10px; margin-top:18px; }
+  .modal .actions button{ flex:1; }
+  .field-error{ color:var(--red); font-size:12px; margin-top:8px; }
+
+  /* ---------- ADMIN DASHBOARD ---------- */
+  .admin-wrap{ width:100%; max-width:960px; }
+  .admin-header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding-bottom:16px; border-bottom:1px solid var(--border); margin-bottom:20px;
+  }
+  .admin-header .who{ font-size:12px; color:var(--text-dim); letter-spacing:1px; }
+  .admin-header .who b{ color:var(--green-bright); }
+  .tabs{ display:flex; gap:4px; margin-bottom:22px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+  .tab{
+    background:transparent; border:1px solid transparent; border-bottom:none;
+    padding:10px 16px; font-size:12px; letter-spacing:1.5px; color:var(--text-dim);
+  }
+  .tab.active{ color:var(--green); border-color:var(--border); background:var(--panel); box-shadow:none; }
+  .tab:hover{ background:var(--green-faint); color:var(--green); box-shadow:none; }
+
+  .panel{ border:1px solid var(--border); background:rgba(4,10,5,0.6); padding:24px; }
+  .panel h3{ margin-top:0; font-size:22px; color:var(--green-bright); }
+  .panel .hint{ font-size:12px; color:var(--text-dim); margin-bottom:16px; }
+  .field-group{ margin-bottom:18px; max-width:480px; }
+  .save-row{ margin-top:8px; display:flex; align-items:center; gap:12px; }
+  .saved-msg{ color:var(--green-bright); font-size:12px; }
+
+  .thumb-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:14px; margin-top:14px; }
+  .thumb{ position:relative; border:1px solid var(--border); aspect-ratio:16/10; overflow:hidden; }
+  .thumb img{ width:100%; height:100%; object-fit:cover; filter:grayscale(15%) hue-rotate(80deg) saturate(1.2); }
+  .thumb .rm{
+    position:absolute; top:4px; right:4px; padding:4px 8px; font-size:10px;
+    background:rgba(0,0,0,0.7); border:1px solid var(--red); color:var(--red);
+  }
+  .thumb .rm:hover{ background:var(--red); color:#000; }
+  .upload-box{
+    border:1px dashed var(--border); padding:20px; text-align:center; margin-top:12px; font-size:12px; color:var(--text-dim);
+  }
+
+  .user-table{ width:100%; border-collapse:collapse; margin-top:14px; font-size:13px; }
+  .user-table th{ text-align:left; color:var(--text-dim); font-size:11px; letter-spacing:1.5px; padding:8px; border-bottom:1px solid var(--border); }
+  .user-table td{ padding:10px 8px; border-bottom:1px solid var(--green-faint); }
+  .role-badge{ font-size:10px; padding:2px 8px; border:1px solid var(--green); letter-spacing:1px; }
+  .role-badge.owner{ border-color:var(--red); color:var(--red); }
+
+  .inline-form{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:18px; }
+  .inline-form .field-group{ margin-bottom:0; flex:1; min-width:140px; }
+
+  .empty-note{ color:var(--text-dim); font-size:13px; padding:14px 0; }
+
+  @media (max-width:640px){
+    .terminal-card{ padding:24px 18px; }
+    .case-file{ padding:18px; }
+    .code-input{ font-size:20px; letter-spacing:6px; }
+    .tabs{ overflow-x:auto; }
+  }
+</style>
+</head>
+<body>
+<canvas id="matrix-canvas"></canvas>
+<div id="app"></div>
+
+<script>
+/* ============ MATRIX RAIN BACKGROUND ============ */
+(function(){
+  const canvas = document.getElementById('matrix-canvas');
+  const ctx = canvas.getContext('2d');
+  let w,h,cols,drops;
+  const chars = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789";
+  function resize(){
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    cols = Math.floor(w / 16);
+    drops = new Array(cols).fill(0).map(()=>Math.random()*-50);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  function draw(){
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.fillRect(0,0,w,h);
+    ctx.font = '15px monospace';
+    for(let i=0;i<cols;i++){
+      const text = chars[Math.floor(Math.random()*chars.length)];
+      const x = i*16;
+      const y = drops[i]*16;
+      const grad = Math.random() > 0.95 ? '#c8ffe0' : '#00ff41';
+      ctx.fillStyle = grad;
+      ctx.fillText(text, x, y);
+      if(y > h && Math.random() > 0.975){ drops[i] = 0; }
+      drops[i]++;
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ============ BACKEND API HELPERS (Netlify Function + Blobs) ============ */
+const API_URL = '/.netlify/functions/site-data';
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+const DEFAULT_DATA = {
+  passcode: '3141592',
+  missionTitle: 'OPERATION NEBUCHADNEZZAR',
+  missionStatus: 'STATUS: ACTIVE // CLEARANCE: LEVEL 3',
+  mission: "Welcome, operative.\n\nThe machines have hardened their perimeter around Node 7. Your task is to locate the signal relay hidden inside the old subway grid and re-establish contact with Zion command.\n\nTrust no unencrypted channel. Trust no face you cannot verify twice.\n\nThe answer you're looking for is not in this file. It's in the next one.",
+  images: [],
+  owners: [
+    { id: uid(), name: 'Morpheus', username: 'owner', password: 'owner123' }
+  ],
+  admins: []
+};
+
+let backendUnavailable = false;
+
+async function loadData(){
+  try{
+    const res = await fetch(API_URL, { method: 'GET' });
+    if(!res.ok) throw new Error('Bad response: ' + res.status);
+    const json = await res.json();
+    backendUnavailable = false;
+    return Object.assign({}, DEFAULT_DATA, json);
+  }catch(e){
+    console.warn('Could not reach backend function — falling back to in-memory defaults. Changes will not persist.', e);
+    backendUnavailable = true;
+    return JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+}
+
+// Every save must include the credentials of the currently logged-in admin/owner;
+// the server verifies them against the stored accounts before writing anything.
+async function saveData(data){
+  if(!state.currentUser || !state.currentUser.username || !state.currentUser.password){
+    console.error('No authenticated user available to authorize save.');
+    return { ok:false, error:'Not authenticated.' };
+  }
+  try{
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        auth: { username: state.currentUser.username, password: state.currentUser.password },
+        data
+      })
+    });
+    const json = await res.json().catch(()=>({}));
+    if(!res.ok){
+      return { ok:false, error: json.error || ('Save failed (' + res.status + ')') };
+    }
+    return { ok:true };
+  }catch(e){
+    console.error('Storage save failed', e);
+    return { ok:false, error:'Network error while saving.' };
+  }
+}
+
+/* ============ APP STATE ============ */
+let state = {
+  loading: true,
+  view: 'passcode',       // passcode | mission | adminLogin | admin
+  data: null,
+  passInput: '',
+  passError: '',
+  shakeError: false,
+  showAdminLoginModal: false,
+  adminLoginUser: '',
+  adminLoginPass: '',
+  adminLoginError: '',
+  currentUser: null,      // { id, name, username, role: 'owner'|'admin' }
+  adminTab: 'content',
+  sliderIndex: 0,
+  draftMissionTitle: '',
+  draftMissionStatus: '',
+  draftMission: '',
+  contentSaved: false,
+  draftPassNew: '',
+  draftPassConfirm: '',
+  passChangeMsg: '',
+  passChangeErr: '',
+  newUserName: '',
+  newUserUsername: '',
+  newUserPassword: '',
+  newUserRole: 'admin',
+  userFormErr: ''
+};
+
+const app = document.getElementById('app');
+
+function esc(s){
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+
+/* ============ INIT ============ */
+(async function init(){
+  render(bootScreen());
+  try{
+    state.data = await loadData();
+  }catch(e){
+    console.error('Unexpected init failure, falling back to in-memory defaults.', e);
+    state.data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+  state.draftMissionTitle = state.data.missionTitle;
+  state.draftMissionStatus = state.data.missionStatus;
+  state.draftMission = state.data.mission;
+  state.loading = false;
+  state.view = 'passcode';
+  render();
+})();
+
+function bootScreen(){
+  const wrap = document.createElement('div');
+  wrap.className = 'boot-wrap';
+  wrap.innerHTML = `
+    <div class="boot-line flicker">WAKE UP...</div>
+    <div class="boot-line" style="margin-top:14px;">> initializing secure channel</div>
+    <div class="boot-line">> tracing route <b>[OK]</b></div>
+    <div class="boot-line">> decrypting terminal <span class="cursor"></span></div>
+  `;
+  return wrap;
+}
+
+/* ============ RENDER ROUTER ============ */
+function render(customNode){
+  app.innerHTML = '';
+  if(customNode){ app.appendChild(customNode); return; }
+
+  if(backendUnavailable){
+    const banner = document.createElement('div');
+    banner.style.cssText = 'max-width:640px;width:100%;margin-bottom:16px;padding:10px 16px;border:1px solid var(--red);color:var(--red);font-size:12px;letter-spacing:1px;background:rgba(255,59,59,0.08);';
+    banner.textContent = '⚠ Could not reach the backend function (/.netlify/functions/site-data). Running on temporary in-memory data — nothing will be saved. Check your Netlify Function deploy.';
+    app.appendChild(banner);
+  }
+
+  if(state.view === 'passcode') app.appendChild(renderPasscode());
+  else if(state.view === 'mission') app.appendChild(renderMission());
+  else if(state.view === 'admin') app.appendChild(renderAdmin());
+
+  if(state.showAdminLoginModal) app.appendChild(renderAdminLoginModal());
+}
+
+/* ============ PASSCODE SCREEN ============ */
+function renderPasscode(){
+  const card = document.createElement('div');
+  card.className = 'terminal-card' + (state.shakeError ? ' shake' : '');
+  card.innerHTML = `
+    <div class="terminal-titlebar">
+      <span><span class="dot"></span> SECURE LINK</span>
+      <span>NODE_7 // ${new Date().getFullYear()}</span>
+    </div>
+    <div class="prompt-row"><span class="glow">ENTER ACCESS CODE</span><span class="cursor"></span></div>
+    <input id="passInput" class="code-input" type="password" inputmode="numeric" autocomplete="off"
+      placeholder="••••••••" value="${esc(state.passInput)}" maxlength="24" />
+    <div class="submit-row">
+      <button id="submitPass">Authenticate</button>
+    </div>
+    ${state.passError ? `<div class="error-msg">✕ ${esc(state.passError)}</div>` : ''}
+    <div class="footnote">UNAUTHORIZED ACCESS WILL BE TRACED &mdash; ${' '}
+      <span class="link-btn" id="openAdminLoginFromPass" style="cursor:pointer;">admin access</span>
+    </div>
+  `;
+
+  setTimeout(()=>{
+    const input = card.querySelector('#passInput');
+    if(input) input.focus();
+  },0);
+
+  card.querySelector('#passInput').addEventListener('input', e=>{
+    state.passInput = e.target.value;
+  });
+  card.querySelector('#passInput').addEventListener('keydown', e=>{
+    if(e.key === 'Enter') tryPasscode();
+  });
+  card.querySelector('#submitPass').addEventListener('click', tryPasscode);
+  card.querySelector('#openAdminLoginFromPass').addEventListener('click', ()=>{
+    state.showAdminLoginModal = true;
+    render();
+  });
+
+  return card;
+}
+
+function tryPasscode(){
+  if(state.passInput.trim() === '' ) return;
+  if(state.passInput === state.data.passcode){
+    state.passError = '';
+    state.passInput = '';
+    state.sliderIndex = 0;
+    state.view = 'mission';
+    render();
+  }else{
+    state.passError = 'ACCESS DENIED — INCORRECT CODE';
+    state.shakeError = true;
+    render();
+    setTimeout(()=>{ state.shakeError = false; }, 400);
+  }
+}
+
+/* ============ MISSION SCREEN ============ */
+function renderMission(){
+  const wrap = document.createElement('div');
+  wrap.className = 'mission-wrap';
+
+  const images = state.data.images || [];
+
+  wrap.innerHTML = `
+    <div class="top-bar">
+      <span>ZION // MISSION TERMINAL</span>
+      <span class="status">${images.length ? 'FEED LIVE' : 'FEED IDLE'}</span>
+    </div>
+    <div class="slider" id="sliderEl">
+      <div class="slider-track" id="sliderTrack" style="transform:translateX(-${state.sliderIndex*100}%)">
+        ${images.length ? images.map(img => `
+          <div class="slide"><img src="${img.url}" alt="mission image"/></div>
+        `).join('') : `<div class="slide"><div class="slide-empty">NO VISUAL DATA UPLOADED</div></div>`}
+      </div>
+      ${images.length > 1 ? `
+        <button class="slider-nav prev" id="prevSlide">‹</button>
+        <button class="slider-nav next" id="nextSlide">›</button>
+        <div class="slider-dots">
+          ${images.map((_,i)=>`<span data-i="${i}" class="${i===state.sliderIndex?'active':''}"></span>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+    <div class="case-file">
+      <div class="stamp">CLASSIFIED</div>
+      <h2 class="glow">${esc(state.data.missionTitle)}</h2>
+      <div class="subline">${esc(state.data.missionStatus)}</div>
+      <div class="divider"></div>
+      <div class="mission-body">${esc(state.data.mission)}</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="link-btn" id="lockOut" style="cursor:pointer;">‹‹ lock terminal</button>
+      <span style="color:var(--text-dim); padding:6px 10px;">|</span>
+      <button class="link-btn" id="openAdminFromMission" style="cursor:pointer;">admin access ››</button>
+    </div>
+  `;
+
+  if(images.length > 1){
+    wrap.querySelector('#prevSlide').addEventListener('click', ()=>{
+      state.sliderIndex = (state.sliderIndex - 1 + images.length) % images.length;
+      render();
+    });
+    wrap.querySelector('#nextSlide').addEventListener('click', ()=>{
+      state.sliderIndex = (state.sliderIndex + 1) % images.length;
+      render();
+    });
+    wrap.querySelectorAll('.slider-dots span').forEach(dot=>{
+      dot.addEventListener('click', ()=>{
+        state.sliderIndex = parseInt(dot.dataset.i,10);
+        render();
+      });
+    });
+  }
+
+  wrap.querySelector('#lockOut').addEventListener('click', ()=>{
+    state.view = 'passcode';
+    render();
+  });
+  wrap.querySelector('#openAdminFromMission').addEventListener('click', ()=>{
+    state.showAdminLoginModal = true;
+    render();
+  });
+
+  return wrap;
+}
+
+/* ============ ADMIN LOGIN MODAL ============ */
+function renderAdminLoginModal(){
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3 class="glow">ADMIN ACCESS</h3>
+      <div class="row">
+        <label>Username</label>
+        <input id="alUser" type="text" autocomplete="off" value="${esc(state.adminLoginUser)}"/>
+      </div>
+      <div class="row">
+        <label>Password</label>
+        <input id="alPass" type="password" autocomplete="off" value="${esc(state.adminLoginPass)}"/>
+      </div>
+      ${state.adminLoginError ? `<div class="field-error">✕ ${esc(state.adminLoginError)}</div>` : ''}
+      <div class="actions">
+        <button class="ghost" id="alCancel">Cancel</button>
+        <button id="alSubmit">Enter</button>
+      </div>
+    </div>
+  `;
+  backdrop.addEventListener('click', e=>{ if(e.target === backdrop) closeAdminModal(); });
+  backdrop.querySelector('#alUser').addEventListener('input', e=> state.adminLoginUser = e.target.value);
+  backdrop.querySelector('#alPass').addEventListener('input', e=> state.adminLoginPass = e.target.value);
+  backdrop.querySelector('#alPass').addEventListener('keydown', e=>{ if(e.key==='Enter') tryAdminLogin(); });
+  backdrop.querySelector('#alCancel').addEventListener('click', closeAdminModal);
+  backdrop.querySelector('#alSubmit').addEventListener('click', tryAdminLogin);
+  return backdrop;
+}
+
+function closeAdminModal(){
+  state.showAdminLoginModal = false;
+  state.adminLoginUser = '';
+  state.adminLoginPass = '';
+  state.adminLoginError = '';
+  render();
+}
+
+function tryAdminLogin(){
+  const u = state.adminLoginUser.trim();
+  const p = state.adminLoginPass;
+  const owner = state.data.owners.find(o => o.username === u && o.password === p);
+  const admin = !owner ? state.data.admins.find(a => a.username === u && a.password === p) : null;
+  const match = owner || admin;
+  if(!match){
+    state.adminLoginError = 'Invalid username or password.';
+    render();
+    return;
+  }
+  state.currentUser = { id: match.id, name: match.name, username: match.username, password: match.password, role: owner ? 'owner' : 'admin' };
+  state.showAdminLoginModal = false;
+  state.adminLoginUser = '';
+  state.adminLoginPass = '';
+  state.adminLoginError = '';
+  state.adminTab = 'content';
+  state.draftMissionTitle = state.data.missionTitle;
+  state.draftMissionStatus = state.data.missionStatus;
+  state.draftMission = state.data.mission;
+  state.view = 'admin';
+  render();
+}
+
+/* ============ ADMIN DASHBOARD ============ */
+function renderAdmin(){
+  const wrap = document.createElement('div');
+  wrap.className = 'admin-wrap';
+  const isOwner = state.currentUser.role === 'owner';
+
+  wrap.innerHTML = `
+    <div class="admin-header">
+      <div>
+        <h3 style="margin:0;" class="glow">MISSION CONTROL</h3>
+        <div class="who">Logged in as <b>${esc(state.currentUser.name)}</b> (${esc(state.currentUser.role)})</div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="ghost" id="backToMission">‹ view site</button>
+        <button class="ghost" id="logoutAdmin">Log out</button>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab ${state.adminTab==='content'?'active':''}" data-tab="content">Mission Content</button>
+      <button class="tab ${state.adminTab==='images'?'active':''}" data-tab="images">Image Slider</button>
+      <button class="tab ${state.adminTab==='passcode'?'active':''}" data-tab="passcode">Access Code</button>
+      ${isOwner ? `<button class="tab ${state.adminTab==='users'?'active':''}" data-tab="users">Admins & Owners</button>` : ''}
+    </div>
+    <div id="panelSlot"></div>
+  `;
+
+  wrap.querySelector('#backToMission').addEventListener('click', ()=>{ state.view='mission'; render(); });
+  wrap.querySelector('#logoutAdmin').addEventListener('click', ()=>{
+    state.currentUser = null;
+    state.view = 'mission';
+    render();
+  });
+  wrap.querySelectorAll('.tab').forEach(t=>{
+    t.addEventListener('click', ()=>{ state.adminTab = t.dataset.tab; render(); });
+  });
+
+  const slot = wrap.querySelector('#panelSlot');
+  if(state.adminTab === 'content') slot.appendChild(panelContent());
+  else if(state.adminTab === 'images') slot.appendChild(panelImages());
+  else if(state.adminTab === 'passcode') slot.appendChild(panelPasscode());
+  else if(state.adminTab === 'users' && isOwner) slot.appendChild(panelUsers());
+
+  return wrap;
+}
+
+/* --- Mission content panel --- */
+function panelContent(){
+  const p = document.createElement('div');
+  p.className = 'panel';
+  p.innerHTML = `
+    <h3>Mission Content</h3>
+    <div class="hint">This is what visitors see after they enter the access code.</div>
+    <div class="field-group">
+      <label>Mission Title</label>
+      <input id="fTitle" type="text" value="${esc(state.draftMissionTitle)}"/>
+    </div>
+    <div class="field-group">
+      <label>Status Line</label>
+      <input id="fStatus" type="text" value="${esc(state.draftMissionStatus)}"/>
+    </div>
+    <div class="field-group">
+      <label>Briefing Text</label>
+      <textarea id="fBody" rows="10">${esc(state.draftMission)}</textarea>
+    </div>
+    <div class="save-row">
+      <button id="saveContent">Save changes</button>
+      ${state.contentSaved ? '<span class="saved-msg">✓ Saved</span>' : ''}
+    </div>
+    ${state.contentSaveErr ? `<div class="field-error">✕ ${esc(state.contentSaveErr)}</div>` : ''}
+  `;
+  p.querySelector('#fTitle').addEventListener('input', e=>{ state.draftMissionTitle = e.target.value; state.contentSaved=false; });
+  p.querySelector('#fStatus').addEventListener('input', e=>{ state.draftMissionStatus = e.target.value; state.contentSaved=false; });
+  p.querySelector('#fBody').addEventListener('input', e=>{ state.draftMission = e.target.value; state.contentSaved=false; });
+  p.querySelector('#saveContent').addEventListener('click', async ()=>{
+    const prev = { title: state.data.missionTitle, status: state.data.missionStatus, mission: state.data.mission };
+    state.data.missionTitle = state.draftMissionTitle;
+    state.data.missionStatus = state.draftMissionStatus;
+    state.data.mission = state.draftMission;
+    const result = await saveData(state.data);
+    if(result.ok){
+      state.contentSaved = true;
+      state.contentSaveErr = '';
+    }else{
+      state.data.missionTitle = prev.title;
+      state.data.missionStatus = prev.status;
+      state.data.mission = prev.mission;
+      state.contentSaveErr = result.error || 'Save failed.';
+    }
+    render();
+  });
+  return p;
+}
+
+/* --- Images panel --- */
+function panelImages(){
+  const p = document.createElement('div');
+  p.className = 'panel';
+  const images = state.data.images || [];
+  p.innerHTML = `
+    <h3>Image Slider</h3>
+    <div class="hint">These images appear in the slider above the mission briefing, in this order. Keep individual images reasonably small (a few hundred KB each) &mdash; the save request has a size limit.</div>
+    <div class="upload-box">
+      <label style="margin-bottom:10px;">Upload image(s)</label>
+      <input id="fileInput" type="file" accept="image/*" multiple />
+    </div>
+    <div class="thumb-grid" id="thumbGrid">
+      ${images.map(img => `
+        <div class="thumb" data-id="${img.id}">
+          <img src="${img.url}" alt=""/>
+          <button class="rm" data-id="${img.id}">remove</button>
+        </div>
+      `).join('') || '<div class="empty-note">No images uploaded yet.</div>'}
+    </div>
+    ${state.imagesSaveErr ? `<div class="field-error">✕ ${esc(state.imagesSaveErr)}</div>` : ''}
+  `;
+  p.querySelector('#fileInput').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    const prevImages = state.data.images.slice();
+    for(const file of files){
+      const dataUrl = await fileToDataUrl(file);
+      state.data.images.push({ id: uid(), url: dataUrl });
+    }
+    const result = await saveData(state.data);
+    if(result.ok){
+      state.imagesSaveErr = '';
+    }else{
+      state.data.images = prevImages;
+      state.imagesSaveErr = result.error || 'Upload failed to save.';
+    }
+    render();
+  });
+  p.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const prevImages = state.data.images.slice();
+      state.data.images = state.data.images.filter(img => img.id !== btn.dataset.id);
+      const result = await saveData(state.data);
+      if(!result.ok){
+        state.data.images = prevImages;
+        state.imagesSaveErr = result.error || 'Remove failed to save.';
+      }else{
+        state.imagesSaveErr = '';
+      }
+      if(state.sliderIndex >= state.data.images.length) state.sliderIndex = 0;
+      render();
+    });
+  });
+  return p;
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* --- Passcode panel --- */
+function panelPasscode(){
+  const p = document.createElement('div');
+  p.className = 'panel';
+  p.innerHTML = `
+    <h3>Access Code</h3>
+    <div class="hint">This is the code visitors must enter on the home screen to view the mission.</div>
+    <div class="field-group">
+      <label>New Access Code</label>
+      <input id="newCode" type="text" value="${esc(state.draftPassNew)}" autocomplete="off"/>
+    </div>
+    <div class="field-group">
+      <label>Confirm New Access Code</label>
+      <input id="confirmCode" type="text" value="${esc(state.draftPassConfirm)}" autocomplete="off"/>
+    </div>
+    ${state.passChangeErr ? `<div class="field-error">✕ ${esc(state.passChangeErr)}</div>` : ''}
+    <div class="save-row">
+      <button id="savePasscode">Update access code</button>
+      ${state.passChangeMsg ? `<span class="saved-msg">✓ ${esc(state.passChangeMsg)}</span>` : ''}
+    </div>
+  `;
+  p.querySelector('#newCode').addEventListener('input', e=>{ state.draftPassNew = e.target.value; state.passChangeMsg=''; });
+  p.querySelector('#confirmCode').addEventListener('input', e=>{ state.draftPassConfirm = e.target.value; state.passChangeMsg=''; });
+  p.querySelector('#savePasscode').addEventListener('click', async ()=>{
+    if(!state.draftPassNew.trim()){
+      state.passChangeErr = 'Access code cannot be empty.'; render(); return;
+    }
+    if(state.draftPassNew !== state.draftPassConfirm){
+      state.passChangeErr = 'Codes do not match.'; render(); return;
+    }
+    const prevCode = state.data.passcode;
+    state.data.passcode = state.draftPassNew.trim();
+    const result = await saveData(state.data);
+    if(result.ok){
+      state.passChangeErr = '';
+      state.passChangeMsg = 'Access code updated.';
+      state.draftPassNew = '';
+      state.draftPassConfirm = '';
+    }else{
+      state.data.passcode = prevCode;
+      state.passChangeErr = result.error || 'Save failed.';
+    }
+    render();
+  });
+  return p;
+}
+
+/* --- Users panel (owner only) --- */
+function panelUsers(){
+  const p = document.createElement('div');
+  p.className = 'panel';
+  const owners = state.data.owners || [];
+  const admins = state.data.admins || [];
+
+  p.innerHTML = `
+    <h3>Admins & Owners</h3>
+    <div class="hint">Owners can manage everything, including other owners and admins. Admins can edit mission content, the slider, and the access code.</div>
+    <table class="user-table">
+      <thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead>
+      <tbody>
+        ${owners.map(o => `
+          <tr>
+            <td>${esc(o.name)}</td>
+            <td>${esc(o.username)}</td>
+            <td><span class="role-badge owner">owner</span></td>
+            <td>
+              ${(owners.length > 1) ? `<button class="danger" data-remove="owner" data-id="${o.id}">Remove</button>` : `<span class="empty-note">last owner</span>`}
+            </td>
+          </tr>
+        `).join('')}
+        ${admins.map(a => `
+          <tr>
+            <td>${esc(a.name)}</td>
+            <td>${esc(a.username)}</td>
+            <td><span class="role-badge">admin</span></td>
+            <td><button class="danger" data-remove="admin" data-id="${a.id}">Remove</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:28px;">Add New</h3>
+    <div class="inline-form">
+      <div class="field-group">
+        <label>Name</label>
+        <input id="nuName" type="text" value="${esc(state.newUserName)}"/>
+      </div>
+      <div class="field-group">
+        <label>Username</label>
+        <input id="nuUser" type="text" value="${esc(state.newUserUsername)}" autocomplete="off"/>
+      </div>
+      <div class="field-group">
+        <label>Password</label>
+        <input id="nuPass" type="text" value="${esc(state.newUserPassword)}" autocomplete="off"/>
+      </div>
+      <div class="field-group" style="min-width:110px;">
+        <label>Role</label>
+        <select id="nuRole">
+          <option value="admin" ${state.newUserRole==='admin'?'selected':''}>Admin</option>
+          <option value="owner" ${state.newUserRole==='owner'?'selected':''}>Owner</option>
+        </select>
+      </div>
+      <button id="addUser">Add</button>
+    </div>
+    ${state.userFormErr ? `<div class="field-error">✕ ${esc(state.userFormErr)}</div>` : ''}
+  `;
+
+  p.querySelector('#nuName').addEventListener('input', e=> state.newUserName = e.target.value);
+  p.querySelector('#nuUser').addEventListener('input', e=> state.newUserUsername = e.target.value);
+  p.querySelector('#nuPass').addEventListener('input', e=> state.newUserPassword = e.target.value);
+  p.querySelector('#nuRole').addEventListener('change', e=> state.newUserRole = e.target.value);
+
+  p.querySelector('#addUser').addEventListener('click', async ()=>{
+    const name = state.newUserName.trim();
+    const username = state.newUserUsername.trim();
+    const password = state.newUserPassword;
+    if(!name || !username || !password){
+      state.userFormErr = 'Fill in name, username, and password.'; render(); return;
+    }
+    const allUsers = [...state.data.owners, ...state.data.admins];
+    if(allUsers.some(u => u.username === username)){
+      state.userFormErr = 'That username is already taken.'; render(); return;
+    }
+    const entry = { id: uid(), name, username, password };
+    if(state.newUserRole === 'owner') state.data.owners.push(entry);
+    else state.data.admins.push(entry);
+    const result = await saveData(state.data);
+    if(result.ok){
+      state.newUserName = ''; state.newUserUsername = ''; state.newUserPassword = ''; state.newUserRole = 'admin';
+      state.userFormErr = '';
+    }else{
+      if(state.newUserRole === 'owner') state.data.owners = state.data.owners.filter(o => o.id !== entry.id);
+      else state.data.admins = state.data.admins.filter(a => a.id !== entry.id);
+      state.userFormErr = result.error || 'Save failed.';
+    }
+    render();
+  });
+
+  p.querySelectorAll('[data-remove="owner"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(state.data.owners.length <= 1) return;
+      const prevOwners = state.data.owners.slice();
+      state.data.owners = state.data.owners.filter(o => o.id !== btn.dataset.id);
+      const result = await saveData(state.data);
+      if(!result.ok){
+        state.data.owners = prevOwners;
+        state.userFormErr = result.error || 'Remove failed.';
+      }else{
+        state.userFormErr = '';
+      }
+      render();
+    });
+  });
+  p.querySelectorAll('[data-remove="admin"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const prevAdmins = state.data.admins.slice();
+      state.data.admins = state.data.admins.filter(a => a.id !== btn.dataset.id);
+      const result = await saveData(state.data);
+      if(!result.ok){
+        state.data.admins = prevAdmins;
+        state.userFormErr = result.error || 'Remove failed.';
+      }else{
+        state.userFormErr = '';
+      }
+      render();
+    });
+  });
+
+  return p;
+}
+</script>
+</body>
+</html>
