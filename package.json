@@ -1,0 +1,9 @@
+{
+  "name": "matrix-mission-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Matrix-themed mission site with passcode gate and admin panel, backed by Netlify Functions + Netlify Blobs.",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
